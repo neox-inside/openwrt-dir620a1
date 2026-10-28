@@ -27,43 +27,33 @@ jobs:
 
     - name: Download and Extract Image Builder
       run: |
-        # Зеркала: 1 - Бразильский CDN C3SL, 2 - Нидерландский астрономический институт ASTRON
-        URL1="https://ufpr.br"
-        URL2="https://astron.nl"
+        # Качаем из постоянного архивного хранилища OpenWrt (Attic Archive), где файлы лежат вечно
+        URL="https://openwrt.org"
         
-        USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        echo "Скачивание Image Builder из официального архива OpenWrt..."
+        curl -k -L "$URL" -o openwrt-imagebuilder.tar.xz --connect-timeout 30 --retry 5
         
-        echo "Попытка 1: Скачивание с CDN C3SL (с обходом ошибки SSL)..."
-        # Флаг -k / --insecure решает проблему "SSL certificate problem: unable to get local issuer certificate"
-        curl -k -L -A "$USER_AGENT" "$URL1" -o openwrt-imagebuilder.tar.xz --connect-timeout 20 --retry 5 || true
-        
-        # Если первый файл битый или выдал HTML, переходим к полностью открытому нидерландскому зеркалу ASTRON
-        if [ ! -f openwrt-imagebuilder.tar.xz ] || file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text|empty"; then
-          echo "Зеркало C3SL недоступно или выдало ошибку. Попытка 2: Зеркало ASTRON (Netherlands)..."
-          curl -k -L -A "$USER_AGENT" "$URL2" -o openwrt-imagebuilder.tar.xz --connect-timeout 20 --retry 5 || true
-        fi
-        
-        # Финальная проверка типа файла перед распаковкой
-        if [ ! -f openwrt-imagebuilder.tar.xz ] || file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text"; then
-          echo "Критическая ошибка: Ни одно из зеркал не отдало бинарный архив прошивки."
-          [ -f openwrt-imagebuilder.tar.xz ] && cat openwrt-imagebuilder.tar.xz
+        # Проверка типа файла перед распаковкой
+        if file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text"; then
+          echo "Критическая ошибка: Архив не получен. Содержимое ответа сервера:"
+          cat openwrt-imagebuilder.tar.xz
           exit 1
         fi
         
         echo "Архив успешно получен. Распаковка..."
         tar -xf openwrt-imagebuilder.tar.xz
-        mv openwrt-imagebuilder-22.03.7-ramips-rt305x.Linux-x86_64 imagebuilder
+        mv openwrt-imagebuilder-21.02.7-ramips-rt305x.Linux-x86_64 imagebuilder
         rm openwrt-imagebuilder.tar.xz
 
     - name: Build Firmware Image
       run: |
         cd imagebuilder
         
-        # Перенаправляем внутренний менеджер пакетов Image Builder на работу через зеркало ASTRON,
-        # так как там нет никаких защит Cloudflare и проверка пройдет гладко
-        sed -i 's|downloads.openwrt.org|ftp.astron.nl/openwrt|g' repositories.conf
+        # Перенаправляем менеджер пакетов на архивный сервер, чтобы все зависимости скачались успешно
+        sed -i 's|downloads.openwrt.org|archive.openwrt.org|g' repositories.conf
         
-        # Конфигурация пакетов под 8MB Flash / 32MB RAM роутера DIR-620 A1
+        # Конфигурация пакетов под 8MB Flash / 32MB RAM роутера DIR-620 A1 в ветке 21.02
+        # LuCI включена, тяжелый mbedtls заменен на wolfssl, добавлены RNDIS/CDC драйверы модемов
         PACKAGES="luci \
                   -ppp -ppp-mod-pppoe \
                   -wpad-basic-mbedtls wpad-basic-wolfssl \
