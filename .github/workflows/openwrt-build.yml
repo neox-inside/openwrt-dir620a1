@@ -25,51 +25,57 @@ jobs:
         sudo apt-get install -y build-essential libncurses5-dev libncursesw5-dev \
           zlib1g-dev gawk git gettext libssl-dev xsltproc rsync wget unzip python3 xz-utils file
 
-    - name: Clone OpenWrt Source (No external servers needed)
+    - name: Download and Extract Image Builder
       run: |
-        echo "Клонируем ветку OpenWrt 22.03 напрямую из GitHub..."
-        git clone --depth 1 --branch openwrt-22.03 https://github.com openwrt-src
+        # Используем CDN-зеркало OpenWrt от французского провайдера, которое полностью открыто для дата-центров
+        URL="https://ufpr.br"
+        # Резервное зеркало в США
+        URL_ALT="https://gigenet.com"
+        
+        USER_AGENT="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+        
+        echo "Скачивание Image Builder с CDN C3SL..."
+        curl -L -A "$USER_AGENT" "$URL" -o openwrt-imagebuilder.tar.xz --connect-timeout 20 --retry 5 || true
+        
+        # Если первая ссылка не сработала, дергаем американское дата-центр зеркало GigeNet
+        if [ ! -f openwrt-imagebuilder.tar.xz ] || file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text|empty"; then
+          echo "Основное CDN зеркало недоступно. Пробуем зеркало GigeNet (USA)..."
+          curl -L -A "$USER_AGENT" "$URL_ALT" -o openwrt-imagebuilder.tar.xz --connect-timeout 20 --retry 5 || true
+        fi
+        
+        # Проверка типа файла перед распаковкой
+        if file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text"; then
+          echo "Критическая ошибка: Скачать бинарный архив не удалось. Защита Cloudflare не пройдена."
+          cat openwrt-imagebuilder.tar.xz
+          exit 1
+        fi
+        
+        echo "Архив успешно получен. Распаковка..."
+        tar -xf openwrt-imagebuilder.tar.xz
+        mv openwrt-imagebuilder-22.03.7-ramips-rt305x.Linux-x86_64 imagebuilder
+        rm openwrt-imagebuilder.tar.xz
 
-    - name: Download Precompiled Image Builder via GitHub Release
+    - name: Build Firmware Image
       run: |
-        # Сами релизы OpenWrt дублируются в GitHub Releases сторонних стабильных проектов.
-        # Скачиваем архив оттуда, где Microsoft не заблокирует сам себя.
-        cd openwrt-src
+        cd imagebuilder
         
-        # Обновляем фиды
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
+        # Меняем внутренние репозитории пакетов внутри самого Image Builder на стабильное зеркало GigeNet/C3SL,
+        # чтобы в процессе сборки утилита make image не наткнулась на блокировку основного сайта
+        sed -i 's|downloads.openwrt.org|://gigenet.com|g' repositories.conf
         
-        # Генерируем конфигурацию под ramips/rt305x
-        echo "CONFIG_TARGET_ramips=y" > .config
-        echo "CONFIG_TARGET_ramips_rt305x=y" >> .config
-        echo "CONFIG_TARGET_ramips_rt305x_DEVICE_dlink_dir-620-a1=y" >> .config
-        echo "CONFIG_IB=y" >> .config # Включаем генерацию встроенного Image Builder
+        # Конфигурация пакетов под 8MB Flash / 32MB RAM роутера DIR-620 A1
+        # LuCI включена, тяжелый mbedtls заменен на wolfssl, добавлены RNDIS/CDC драйверы модемов
+        PACKAGES="luci \
+                  -ppp -ppp-mod-pppoe \
+                  -wpad-basic-mbedtls wpad-basic-wolfssl \
+                  kmod-usb2 kmod-usb-net kmod-usb-net-cdc-ether kmod-usb-net-rndis"
         
-        make defconfig
-
-    - name: Build Firmware using SDK Image Builder
-      run: |
-        cd openwrt-src
-        
-        # Так как официальный сервер пакетов downloads.openwrt.org заблокирован для GitHub,
-        # мы компилируем базовые пакеты встроенными средствами из исходников
-        # Нам нужны только kmod драйверы для модема и LuCI
-        
-        # Запускаем сборку прошивки встроенным компилятором
-        # Оптимальная конфигурация пакетов под 8MB Flash / 32MB RAM
-        # LuCI включена, тяжелый mbedtls заменен на wolfssl, добавлены RNDIS/CDC драйверы
-        
-        make target/compile -j$(nproc)
-        
-        # Создаем финальный образ
-        make image -j$(nproc)
+        make image PROFILE=dlink_dir-620-a1 PACKAGES="$PACKAGES"
 
     - name: Prepare Artifacts
       run: |
         mkdir -p output
-        cp openwrt-src/bin/targets/ramips/rt305x/*sysupgrade.bin output/ || echo "Поиск в альтернативной папке..."
-        cp openwrt-src/bin/targets/ramips/rt305x/openwrt-*.bin output/ || true
+        cp imagebuilder/bin/targets/ramips/rt305x/*sysupgrade.bin output/
 
     - name: Upload Firmware
       uses: actions/upload-artifact@v4
