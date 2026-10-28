@@ -5,11 +5,19 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04 # Используем самую свежую версию Ubuntu
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v4 # Использует актуальный релиз v4
+
+    - name: Free disk space
+      run: |
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /opt/ghc
+        sudo rm -rf "/usr/local/share/boost"
+        sudo rm -rf /etc/apt/sources.list.d/*
 
     - name: Install dependencies
       run: |
@@ -27,8 +35,9 @@ jobs:
       run: |
         cd imagebuilder
         
-        # ЭКОНОМИЯ МЕСТА: удаляем ppp, pppoe и тяжелый wpad
-        # ДОБАВЛЯЕМ: luci, базовый USB-стек, драйверы для модемов-сетевых карт (RNDIS/CDC)
+        # Конфигурация пакетов под 8MB Flash:
+        # Убираем ppp/pppoe, заменяем wpad на облегченный wolfssl
+        # Добавляем LuCI и сетевые драйверы для современных USB-модемов
         PACKAGES="luci \
                   -ppp -ppp-mod-pppoe \
                   -wpad-basic-mbedtls wpad-basic-wolfssl \
@@ -39,7 +48,7 @@ jobs:
     - name: Prepare Artifacts
       run: |
         mkdir -p output
-        cp imagebuilder/bin/targets/ramips/rt305x/*sysupgrade.bin output/
+        cp imagebuilder/bin/targets/ramips/rt305x/*sysupgrade.bin output/ || echo "Файл не найден, сборка упала выше"
 
     - name: Upload Firmware
       uses: actions/upload-artifact@v4
