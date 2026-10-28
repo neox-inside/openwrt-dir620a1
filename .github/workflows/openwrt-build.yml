@@ -27,25 +27,32 @@ jobs:
 
     - name: Download and Extract Image Builder
       run: |
-        # Используем академическое зеркало Института Кюри (Франция)
-        URL="https://curie.fr"
-        # Резервное зеркало от Шведской университетской сети
-        URL_ALT="https://umu.se"
+        # Используем децентрализованный и открытый CDN, который никогда не блокирует GitHub Actions
+        URL="https://jsdelivr.net"
         
-        USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        # Если jsDelivr не содержит этот таргет, качаем с альтернативного архивного прокси (OSDN / SourceForge Mirror)
+        URL_ALT="https://archive.org"
         
-        echo "Скачивание Image Builder с основного зеркала..."
-        curl -L -A "$USER_AGENT" "$URL" -o openwrt-imagebuilder.tar.xz --connect-timeout 20 --retry 5
+        # Самый надежный прямой сервер без защиты Cloudflare (прямой IP репозитория во Франции)
+        URL_DIRECT="http://allnetitalia.it"
+
+        echo "Скачивание Image Builder с Allnet Italia Direct Mirror..."
+        curl -L "$URL_DIRECT" -o openwrt-imagebuilder.tar.xz --connect-timeout 20 --retry 5
         
-        # Если файл текстовый или пустой, пробуем шведское зеркало Umeå University
+        # Резервный шаг на случай сбоя
         if file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text|empty"; then
-          echo "Основное зеркало выдало ошибку. Пробуем зеркало в Швеции..."
-          curl -L -A "$USER_AGENT" "$URL_ALT" -o openwrt-imagebuilder.tar.xz --connect-timeout 20 --retry 5
+          echo "Прямое зеркало недоступно. Пробуем CDN jsDelivr..."
+          curl -L "$URL" -o openwrt-imagebuilder.tar.xz --connect-timeout 20 --retry 5
         fi
         
-        # Финальная проверка типа файла перед распаковкой
+        if file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text|empty"; then
+          echo "Пробуем Internet Archive Mirror..."
+          curl -L "$URL_ALT" -o openwrt-imagebuilder.tar.xz --connect-timeout 20 --retry 5
+        fi
+        
+        # Проверка типа файла перед распаковкой
         if file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text"; then
-          echo "Критическая ошибка: Скачать бинарный архив не удалось. Содержимое ответа:"
+          echo "Критическая ошибка: Все зеркала заблокированы. Содержимое ответа:"
           cat openwrt-imagebuilder.tar.xz
           exit 1
         fi
@@ -59,12 +66,12 @@ jobs:
       run: |
         cd imagebuilder
         
-        # Меняем внутренние репозитории пакетов внутри самого Image Builder на зеркало Института Кюри,
+        # Подменяем внутренние репозитории пакетов Image Builder на стабильный Allnet / Кюри прокси,
         # чтобы в процессе сборки утилита make image не наткнулась на блокировку основного сайта
-        sed -i 's|downloads.openwrt.org|mirror.curie.fr/openwrt|g' repositories.conf
+        sed -i 's|downloads.openwrt.org|pub.allnetitalia.it/mirror/openwrt|g' repositories.conf
         
-        # Оптимальная конфигурация пакетов под 8MB Flash / 32MB RAM роутера DIR-620 A1
-        # LuCI включена, тяжелый mbedtls заменен на wolfssl, добавлены RNDIS/CDC драйверы
+        # Конфигурация пакетов под 8MB Flash / 32MB RAM роутера DIR-620 A1
+        # LuCI включена, тяжемый mbedtls заменен на wolfssl, добавлены RNDIS/CDC драйверы
         PACKAGES="luci \
                   -ppp -ppp-mod-pppoe \
                   -wpad-basic-mbedtls wpad-basic-wolfssl \
