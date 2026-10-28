@@ -23,36 +23,34 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential libncurses5-dev libncursesw5-dev \
-          zlib1g-dev gawk git gettext libssl-dev xsltproc rsync wget unzip python3
+          zlib1g-dev gawk git gettext libssl-dev xsltproc rsync wget unzip python3 xz-utils
 
     - name: Download and Extract Image Builder
       run: |
-        # Скачиваем строго по прямой ссылке на архив
+        # Используем curl с флагом -L (follow redirects) и правильными таймаутами
         URL="https://openwrt.org"
-        echo "Скачивание Image Builder с $URL..."
-        wget -q --show-progress "$URL" -O openwrt-imagebuilder.tar.xz
+        echo "Скачивание Image Builder через curl..."
+        curl -L "$URL" -o openwrt-imagebuilder.tar.xz --connect-timeout 15 --retry 5
         
-        # Проверяем, что файл скачался и имеет корректный размер
-        if [ ! -s openwrt-imagebuilder.tar.xz ]; then
-          echo "Ошибка: Файл не скачался или пуст!"
+        # Проверяем реальный тип файла. Если там HTML, скрипт сразу упадет с ошибкой
+        if file openwrt-imagebuilder.tar.xz | grep -q "HTML"; then
+          echo "Ошибка: Сервер вернул веб-страницу вместо архива!"
+          cat openwrt-imagebuilder.tar.xz
           exit 1
         fi
         
         echo "Распаковка архива..."
         tar -xf openwrt-imagebuilder.tar.xz
         
-        # Находим распакованную папку и переименовываем её для удобства
-        FOLDER_NAME=$(tar -tf openwrt-imagebuilder.tar.xz | head -1 | cut -f1 -d"/")
-        mv "$FOLDER_NAME" imagebuilder
+        # Переименовываем папку точным совпадением названия релиза
+        mv openwrt-imagebuilder-22.03.7-ramips-rt305x.Linux-x86_64 imagebuilder
         rm openwrt-imagebuilder.tar.xz
 
     - name: Build Firmware Image
       run: |
         cd imagebuilder
         
-        # Оптимальные пакеты для D-Link DIR-620 A1 (8MB Flash / 32MB RAM)
-        # Оставляем веб-интерфейс LuCI, убираем тяжелый mbedtls и ppp/pppoe
-        # Включаем wolfssl и поддержку современных USB-модемов (CDC-Ethernet, RNDIS)
+        # Конфигурация пакетов под 8MB Flash / 32MB RAM
         PACKAGES="luci \
                   -ppp -ppp-mod-pppoe \
                   -wpad-basic-mbedtls wpad-basic-wolfssl \
