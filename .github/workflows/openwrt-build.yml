@@ -27,33 +27,32 @@ jobs:
 
     - name: Download and Extract Image Builder
       run: |
-        # Используем децентрализованный и открытый CDN, который никогда не блокирует GitHub Actions
-        URL="https://jsdelivr.net"
+        # Список зеркал (Kernel.org, Университет Кюри во Франции и Университет Умео в Швеции)
+        URL1="https://kernel.org"
+        URL2="https://curie.fr"
+        URL3="https://umu.se"
         
-        # Если jsDelivr не содержит этот таргет, качаем с альтернативного архивного прокси (OSDN / SourceForge Mirror)
-        URL_ALT="https://archive.org"
+        USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         
-        # Самый надежный прямой сервер без защиты Cloudflare (прямой IP репозитория во Франции)
-        URL_DIRECT="http://allnetitalia.it"
-
-        echo "Скачивание Image Builder с Allnet Italia Direct Mirror..."
-        curl -L "$URL_DIRECT" -o openwrt-imagebuilder.tar.xz --connect-timeout 20 --retry 5
+        echo "Попытка 1: Скачивание с Linux Foundation (Kernel.org)..."
+        curl -L -A "$USER_AGENT" "$URL1" -o openwrt-imagebuilder.tar.xz --connect-timeout 15 --retry 3 || true
         
-        # Резервный шаг на случай сбоя
-        if file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text|empty"; then
-          echo "Прямое зеркало недоступно. Пробуем CDN jsDelivr..."
-          curl -L "$URL" -o openwrt-imagebuilder.tar.xz --connect-timeout 20 --retry 5
+        # Если первый файл битый или не скачался, переходим к зеркалу №2
+        if [ ! -f openwrt-imagebuilder.tar.xz ] || file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text|empty"; then
+          echo "Kernel.org недоступен или выдал ошибку. Попытка 2: Зеркало Curie (Франция)..."
+          curl -L -A "$USER_AGENT" "$URL2" -o openwrt-imagebuilder.tar.xz --connect-timeout 15 --retry 3 || true
         fi
         
-        if file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text|empty"; then
-          echo "Пробуем Internet Archive Mirror..."
-          curl -L "$URL_ALT" -o openwrt-imagebuilder.tar.xz --connect-timeout 20 --retry 5
+        # Если все еще ошибка, переходим к зеркалу №3
+        if [ ! -f openwrt-imagebuilder.tar.xz ] || file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text|empty"; then
+          echo "Зеркало Curie выдало ошибку. Попытка 3: Зеркало Umeå (Швеция)..."
+          curl -L -A "$USER_AGENT" "$URL3" -o openwrt-imagebuilder.tar.xz --connect-timeout 15 --retry 3 || true
         fi
         
-        # Проверка типа файла перед распаковкой
-        if file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text"; then
-          echo "Критическая ошибка: Все зеркала заблокированы. Содержимое ответа:"
-          cat openwrt-imagebuilder.tar.xz
+        # Финальная проверка скачанного файла перед распаковкой
+        if [ ! -f openwrt-imagebuilder.tar.xz ] || file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text"; then
+          echo "Критическая ошибка: Ни одно из зеркал не отдало бинарный архив прошивки."
+          [ -f openwrt-imagebuilder.tar.xz ] && cat openwrt-imagebuilder.tar.xz
           exit 1
         fi
         
@@ -66,12 +65,12 @@ jobs:
       run: |
         cd imagebuilder
         
-        # Подменяем внутренние репозитории пакетов Image Builder на стабильный Allnet / Кюри прокси,
-        # чтобы в процессе сборки утилита make image не наткнулась на блокировку основного сайта
-        sed -i 's|downloads.openwrt.org|pub.allnetitalia.it/mirror/openwrt|g' repositories.conf
+        # Настраиваем внутренние репозитории пакетов Image Builder на работу через стабильное зеркало Kernel.org,
+        # чтобы на этапе make image сборщик скачивал пакеты без блокировок
+        sed -i 's|downloads.openwrt.org|mirrors.kernel.org/openwrt|g' repositories.conf
         
-        # Конфигурация пакетов под 8MB Flash / 32MB RAM роутера DIR-620 A1
-        # LuCI включена, тяжемый mbedtls заменен на wolfssl, добавлены RNDIS/CDC драйверы
+        # Оптимальная конфигурация пакетов под 8MB Flash / 32MB RAM роутера DIR-620 A1
+        # LuCI включена, тяжелый mbedtls заменен на компактный wolfssl, добавлены RNDIS/CDC драйверы модемов
         PACKAGES="luci \
                   -ppp -ppp-mod-pppoe \
                   -wpad-basic-mbedtls wpad-basic-wolfssl \
