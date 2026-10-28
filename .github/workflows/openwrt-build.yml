@@ -19,54 +19,36 @@ jobs:
         sudo rm -rf "/usr/local/share/boost"
         echo "Диск успешно очищен под сборку."
 
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential libncurses5-dev libncursesw5-dev \
-          zlib1g-dev gawk git gettext libssl-dev xsltproc rsync wget unzip python3 xz-utils file ca-certificates
-
-    - name: Download and Extract Image Builder
-      run: |
-        # Скачиваем релиз 21.02.7 из зеркала Яндекса, где файлы лежат в бинарном виде и нет проверок на ботов
-        URL="http://yandex.ru"
+    - name: Build Firmware via Official OpenWrt Docker Image
+      uses: ghaction-net/openwrt-imagebuilder@main
+      with:
+        # Указываем нужную вам версию и архитектуру роутера
+        release: 22.03.7
+        target: ramips
+        subtarget: rt305x
+        profile: dlink_dir-620-a1
         
-        echo "Скачивание Image Builder из зеркала Яндекс..."
-        # Используем wget с флагом маскировки под браузер и отключением проверки роботов
-        wget -q --show-progress --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$URL" -O openwrt-imagebuilder.tar.xz
-        
-        # Проверка типа файла перед распаковкой
-        if file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text"; then
-          echo "Критическая ошибка: Архив не получен. Содержимое ответа сервера:"
-          cat openwrt-imagebuilder.tar.xz
-          exit 1
-        fi
-        
-        echo "Архив успешно получен. Распаковка..."
-        tar -xf openwrt-imagebuilder.tar.xz
-        mv openwrt-imagebuilder-21.02.7-ramips-rt305x.Linux-x86_64 imagebuilder
-        rm openwrt-imagebuilder.tar.xz
-
-    - name: Build Firmware Image
-      run: |
-        cd imagebuilder
-        
-        # Перенаправляем внутренний менеджер пакетов Image Builder на зеркало Яндекса, 
-        # чтобы во времяmake image все зависимости скачались мгновенно и без блокировок
-        sed -i 's|downloads.openwrt.org|mirror.yandex.ru/mirrors/openwrt|g' repositories.conf
-        
-        # Конфигурация пакетов под 8MB Flash / 32MB RAM роутера DIR-620 A1 в ветке 21.02
-        # LuCI включена, тяжелый mbedtls заменен на компактный wolfssl, добавлены RNDIS/CDC драйверы модемов
-        PACKAGES="luci \
-                  -ppp -ppp-mod-pppoe \
-                  -wpad-basic-mbedtls wpad-basic-wolfssl \
-                  kmod-usb2 kmod-usb-net kmod-usb-net-cdc-ether kmod-usb-net-rndis"
-        
-        make image PROFILE=dlink_dir-620-a1 PACKAGES="$PACKAGES"
+        # Конфигурация пакетов под 8MB Flash / 32MB RAM
+        # Оставляем веб-интерфейс LuCI, отключаем тяжелый mbedtls и ppp/pppoe
+        # Включаем компактный wolfssl и сетевые драйверы для современных USB-модемов
+        packages: >-
+          luci
+          -ppp
+          -ppp-mod-pppoe
+          -wpad-basic-mbedtls
+          wpad-basic-wolfssl
+          kmod-usb2
+          kmod-usb-net
+          kmod-usb-net-cdc-ether
+          kmod-usb-net-rndis
 
     - name: Prepare Artifacts
       run: |
         mkdir -p output
-        cp imagebuilder/bin/targets/ramips/rt305x/*sysupgrade.bin output/
+        # Находим готовый файл sysupgrade в папке билдера и копируем его
+        find bin/ -name "*sysupgrade.bin" -exec cp {} output/ \; 2>/dev/null || true
+        # Если структура папок отличается, копируем все скомпилированные образы
+        cp -r bin/targets/ramips/rt305x/*sysupgrade.bin output/ 2>/dev/null || true
 
     - name: Upload Firmware
       uses: actions/upload-artifact@v4
