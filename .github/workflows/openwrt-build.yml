@@ -1,0 +1,48 @@
+name: Build OpenWrt for DIR-620 A1 (LuCI + USB Modem)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential libncurses5-dev libncursesw5-dev \
+          zlib1g-dev gawk git gettext libssl-dev xsltproc rsync wget unzip python3
+
+    - name: Download and Extract Image Builder
+      run: |
+        wget https://openwrt.org
+        tar -xf openwrt-imagebuilder-22.03.7-ramips-rt305x.Linux-x86_64.tar.xz
+        mv openwrt-imagebuilder-22.03.7-ramips-rt305x.Linux-x86_64 imagebuilder
+
+    - name: Build Firmware Image
+      run: |
+        cd imagebuilder
+        
+        # ЭКОНОМИЯ МЕСТА: удаляем ppp, pppoe и тяжелый wpad
+        # ДОБАВЛЯЕМ: luci, базовый USB-стек, драйверы для модемов-сетевых карт (RNDIS/CDC)
+        PACKAGES="luci \
+                  -ppp -ppp-mod-pppoe \
+                  -wpad-basic-mbedtls wpad-basic-wolfssl \
+                  kmod-usb2 kmod-usb-net kmod-usb-net-cdc-ether kmod-usb-net-rndis"
+        
+        make image PROFILE=dlink_dir-620-a1 PACKAGES="$PACKAGES"
+
+    - name: Prepare Artifacts
+      run: |
+        mkdir -p output
+        cp imagebuilder/bin/targets/ramips/rt305x/*sysupgrade.bin output/
+
+    - name: Upload Firmware
+      uses: actions/upload-artifact@v4
+      with:
+        name: openwrt-dir620-a1-luci-usb
+        path: output/
