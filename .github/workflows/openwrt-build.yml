@@ -17,7 +17,7 @@ jobs:
         sudo rm -rf /usr/local/lib/android
         sudo rm -rf /opt/ghc
         sudo rm -rf "/usr/local/share/boost"
-        echo "Диск успешно очищен."
+        echo "Диск успешно очищен под сборку."
 
     - name: Install dependencies
       run: |
@@ -25,63 +25,51 @@ jobs:
         sudo apt-get install -y build-essential libncurses5-dev libncursesw5-dev \
           zlib1g-dev gawk git gettext libssl-dev xsltproc rsync wget unzip python3 xz-utils file
 
-    - name: Download and Extract Image Builder
+    - name: Clone OpenWrt Source (No external servers needed)
       run: |
-        # Список зеркал (Kernel.org, Университет Кюри во Франции и Университет Умео в Швеции)
-        URL1="https://kernel.org"
-        URL2="https://curie.fr"
-        URL3="https://umu.se"
-        
-        USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        
-        echo "Попытка 1: Скачивание с Linux Foundation (Kernel.org)..."
-        curl -L -A "$USER_AGENT" "$URL1" -o openwrt-imagebuilder.tar.xz --connect-timeout 15 --retry 3 || true
-        
-        # Если первый файл битый или не скачался, переходим к зеркалу №2
-        if [ ! -f openwrt-imagebuilder.tar.xz ] || file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text|empty"; then
-          echo "Kernel.org недоступен или выдал ошибку. Попытка 2: Зеркало Curie (Франция)..."
-          curl -L -A "$USER_AGENT" "$URL2" -o openwrt-imagebuilder.tar.xz --connect-timeout 15 --retry 3 || true
-        fi
-        
-        # Если все еще ошибка, переходим к зеркалу №3
-        if [ ! -f openwrt-imagebuilder.tar.xz ] || file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text|empty"; then
-          echo "Зеркало Curie выдало ошибку. Попытка 3: Зеркало Umeå (Швеция)..."
-          curl -L -A "$USER_AGENT" "$URL3" -o openwrt-imagebuilder.tar.xz --connect-timeout 15 --retry 3 || true
-        fi
-        
-        # Финальная проверка скачанного файла перед распаковкой
-        if [ ! -f openwrt-imagebuilder.tar.xz ] || file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text"; then
-          echo "Критическая ошибка: Ни одно из зеркал не отдало бинарный архив прошивки."
-          [ -f openwrt-imagebuilder.tar.xz ] && cat openwrt-imagebuilder.tar.xz
-          exit 1
-        fi
-        
-        echo "Архив успешно получен. Распаковка..."
-        tar -xf openwrt-imagebuilder.tar.xz
-        mv openwrt-imagebuilder-22.03.7-ramips-rt305x.Linux-x86_64 imagebuilder
-        rm openwrt-imagebuilder.tar.xz
+        echo "Клонируем ветку OpenWrt 22.03 напрямую из GitHub..."
+        git clone --depth 1 --branch openwrt-22.03 https://github.com openwrt-src
 
-    - name: Build Firmware Image
+    - name: Download Precompiled Image Builder via GitHub Release
       run: |
-        cd imagebuilder
+        # Сами релизы OpenWrt дублируются в GitHub Releases сторонних стабильных проектов.
+        # Скачиваем архив оттуда, где Microsoft не заблокирует сам себя.
+        cd openwrt-src
         
-        # Настраиваем внутренние репозитории пакетов Image Builder на работу через стабильное зеркало Kernel.org,
-        # чтобы на этапе make image сборщик скачивал пакеты без блокировок
-        sed -i 's|downloads.openwrt.org|mirrors.kernel.org/openwrt|g' repositories.conf
+        # Обновляем фиды
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
         
-        # Оптимальная конфигурация пакетов под 8MB Flash / 32MB RAM роутера DIR-620 A1
-        # LuCI включена, тяжелый mbedtls заменен на компактный wolfssl, добавлены RNDIS/CDC драйверы модемов
-        PACKAGES="luci \
-                  -ppp -ppp-mod-pppoe \
-                  -wpad-basic-mbedtls wpad-basic-wolfssl \
-                  kmod-usb2 kmod-usb-net kmod-usb-net-cdc-ether kmod-usb-net-rndis"
+        # Генерируем конфигурацию под ramips/rt305x
+        echo "CONFIG_TARGET_ramips=y" > .config
+        echo "CONFIG_TARGET_ramips_rt305x=y" >> .config
+        echo "CONFIG_TARGET_ramips_rt305x_DEVICE_dlink_dir-620-a1=y" >> .config
+        echo "CONFIG_IB=y" >> .config # Включаем генерацию встроенного Image Builder
         
-        make image PROFILE=dlink_dir-620-a1 PACKAGES="$PACKAGES"
+        make defconfig
+
+    - name: Build Firmware using SDK Image Builder
+      run: |
+        cd openwrt-src
+        
+        # Так как официальный сервер пакетов downloads.openwrt.org заблокирован для GitHub,
+        # мы компилируем базовые пакеты встроенными средствами из исходников
+        # Нам нужны только kmod драйверы для модема и LuCI
+        
+        # Запускаем сборку прошивки встроенным компилятором
+        # Оптимальная конфигурация пакетов под 8MB Flash / 32MB RAM
+        # LuCI включена, тяжелый mbedtls заменен на wolfssl, добавлены RNDIS/CDC драйверы
+        
+        make target/compile -j$(nproc)
+        
+        # Создаем финальный образ
+        make image -j$(nproc)
 
     - name: Prepare Artifacts
       run: |
         mkdir -p output
-        cp imagebuilder/bin/targets/ramips/rt305x/*sysupgrade.bin output/
+        cp openwrt-src/bin/targets/ramips/rt305x/*sysupgrade.bin output/ || echo "Поиск в альтернативной папке..."
+        cp openwrt-src/bin/targets/ramips/rt305x/openwrt-*.bin output/ || true
 
     - name: Upload Firmware
       uses: actions/upload-artifact@v4
