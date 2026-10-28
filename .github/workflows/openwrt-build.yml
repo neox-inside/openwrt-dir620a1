@@ -27,16 +27,21 @@ jobs:
 
     - name: Download and Extract Image Builder
       run: |
-        # Используем HTTP вместо HTTPS и маскируемся под реальный браузер (User-Agent), чтобы обойти блокировку ботов
-        URL="http://openwrt.org"
-        USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        # Используем надежное немецкое университетское зеркало (RWTH Aachen), где нет защиты от ботов
+        URL="https://rwth-aachen.de"
         
-        echo "Скачивание Image Builder с обходом блокировки..."
-        curl -L -A "$USER_AGENT" "$URL" -o openwrt-imagebuilder.tar.xz --connect-timeout 20 --retry 5
+        echo "Скачивание Image Builder с академического зеркала..."
+        curl -L "$URL" -o openwrt-imagebuilder.tar.xz --connect-timeout 20 --retry 5
         
-        # Проверяем тип файла
+        # Проверяем, что скачался именно архив, а не текст/HTML
         if file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text"; then
-          echo "Ошибка: Сервер все еще блокирует запрос и отдает HTML-страницу:"
+          echo "Ошибка: Сервер вернул текст вместо архива! Пробуем резервное зеркало..."
+          URL_BACKUP="https://openwrt.org"
+          curl -L "$URL_BACKUP" -o openwrt-imagebuilder.tar.xz --connect-timeout 20 --retry 5
+        fi
+        
+        if file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text"; then
+          echo "Критическая ошибка: Скачать архив не удалось."
           cat openwrt-imagebuilder.tar.xz
           exit 1
         fi
@@ -50,7 +55,11 @@ jobs:
       run: |
         cd imagebuilder
         
-        # Конфигурация пакетов под 8MB Flash / 32MB RAM
+        # Подменяем источники пакетов внутри самого Image Builder на зеркало, 
+        # чтобы этап скачивания пакетов при сборке тоже не споткнулся о проверку на бота
+        sed -i 's|downloads.openwrt.org|ftp.halifax.rwth-aachen.de/openwrt|g' repositories.conf
+        
+        # Оптимальная конфигурация пакетов под 8MB Flash / 32MB RAM
         PACKAGES="luci \
                   -ppp -ppp-mod-pppoe \
                   -wpad-basic-mbedtls wpad-basic-wolfssl \
