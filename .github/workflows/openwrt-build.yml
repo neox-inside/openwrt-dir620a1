@@ -5,19 +5,20 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04 # Используем самую свежую версию Ubuntu
+    runs-on: ubuntu-24.04
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4 # Использует актуальный релиз v4
+      uses: actions/checkout@v4
 
-    - name: Free disk space
+    - name: Free disk space safely
       run: |
+        # Удаляем тяжелые инструменты разработки, оставляя настройки APT нетронутыми
         sudo rm -rf /usr/share/dotnet
         sudo rm -rf /usr/local/lib/android
         sudo rm -rf /opt/ghc
         sudo rm -rf "/usr/local/share/boost"
-        sudo rm -rf /etc/apt/sources.list.d/*
+        echo "Диск успешно очищен под сборку."
 
     - name: Install dependencies
       run: |
@@ -35,9 +36,9 @@ jobs:
       run: |
         cd imagebuilder
         
-        # Конфигурация пакетов под 8MB Flash:
-        # Убираем ppp/pppoe, заменяем wpad на облегченный wolfssl
-        # Добавляем LuCI и сетевые драйверы для современных USB-модемов
+        # Оптимальные пакеты для D-Link DIR-620 A1 (8MB Flash / 32MB RAM)
+        # Оставляем LuCI веб-интерфейс, убираем тяжелый wpad и ppp
+        # Добавляем современные USB драйверы (CDC-Ethernet, RNDIS) для Hilink-модемов
         PACKAGES="luci \
                   -ppp -ppp-mod-pppoe \
                   -wpad-basic-mbedtls wpad-basic-wolfssl \
@@ -48,7 +49,7 @@ jobs:
     - name: Prepare Artifacts
       run: |
         mkdir -p output
-        cp imagebuilder/bin/targets/ramips/rt305x/*sysupgrade.bin output/ || echo "Файл не найден, сборка упала выше"
+        cp imagebuilder/bin/targets/ramips/rt305x/*sysupgrade.bin output/
 
     - name: Upload Firmware
       uses: actions/upload-artifact@v4
