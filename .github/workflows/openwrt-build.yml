@@ -19,18 +19,17 @@ jobs:
         sudo rm -rf "/usr/local/share/boost"
         echo "Диск успешно очищен под сборку."
 
-    - name: Build Firmware via Official OpenWrt Docker Image
-      uses: ghaction-net/openwrt-imagebuilder@main
+    - name: Build Firmware via Official OpenWrt ImageBuilder Action
+      uses: izer-xyz/openwrt-imagebuilder-action@v7
       with:
-        # Указываем нужную вам версию и архитектуру роутера
-        release: 22.03.7
-        target: ramips
-        subtarget: rt305x
+        # Конфигурация под архитектуру D-Link DIR-620 A1
+        image: ramips-rt305x
         profile: dlink_dir-620-a1
+        openwrt-version: 22.03.7
         
-        # Конфигурация пакетов под 8MB Flash / 32MB RAM
-        # Оставляем веб-интерфейс LuCI, отключаем тяжелый mbedtls и ppp/pppoe
-        # Включаем компактный wolfssl и сетевые драйверы для современных USB-модемов
+        # Набор пакетов для 8MB Flash / 32MB RAM
+        # Включаем LuCI, урезаем тяжелый mbedtls и ppp/pppoe,
+        # добавляем wolfssl и драйверы модемов (RNDIS/CDC-Ethernet)
         packages: >-
           luci
           -ppp
@@ -45,10 +44,8 @@ jobs:
     - name: Prepare Artifacts
       run: |
         mkdir -p output
-        # Находим готовый файл sysupgrade в папке билдера и копируем его
+        # Копируем готовые бинарные образы sysupgrade из рабочей директории экшена в выходную папку
         find bin/ -name "*sysupgrade.bin" -exec cp {} output/ \; 2>/dev/null || true
-        # Если структура папок отличается, копируем все скомпилированные образы
-        cp -r bin/targets/ramips/rt305x/*sysupgrade.bin output/ 2>/dev/null || true
 
     - name: Upload Firmware
       uses: actions/upload-artifact@v4
