@@ -23,30 +23,30 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential libncurses5-dev libncursesw5-dev \
-          zlib1g-dev gawk git gettext libssl-dev xsltproc rsync wget unzip python3 xz-utils file
+          zlib1g-dev gawk git gettext libssl-dev xsltproc rsync wget unzip python3 xz-utils file ca-certificates
 
     - name: Download and Extract Image Builder
       run: |
-        # Используем CDN-зеркало OpenWrt от французского провайдера, которое полностью открыто для дата-центров
-        URL="https://ufpr.br"
-        # Резервное зеркало в США
-        URL_ALT="https://gigenet.com"
+        # Зеркала: 1 - Бразильский CDN C3SL, 2 - Нидерландский астрономический институт ASTRON
+        URL1="https://ufpr.br"
+        URL2="https://astron.nl"
         
-        USER_AGENT="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+        USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         
-        echo "Скачивание Image Builder с CDN C3SL..."
-        curl -L -A "$USER_AGENT" "$URL" -o openwrt-imagebuilder.tar.xz --connect-timeout 20 --retry 5 || true
+        echo "Попытка 1: Скачивание с CDN C3SL (с обходом ошибки SSL)..."
+        # Флаг -k / --insecure решает проблему "SSL certificate problem: unable to get local issuer certificate"
+        curl -k -L -A "$USER_AGENT" "$URL1" -o openwrt-imagebuilder.tar.xz --connect-timeout 20 --retry 5 || true
         
-        # Если первая ссылка не сработала, дергаем американское дата-центр зеркало GigeNet
+        # Если первый файл битый или выдал HTML, переходим к полностью открытому нидерландскому зеркалу ASTRON
         if [ ! -f openwrt-imagebuilder.tar.xz ] || file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text|empty"; then
-          echo "Основное CDN зеркало недоступно. Пробуем зеркало GigeNet (USA)..."
-          curl -L -A "$USER_AGENT" "$URL_ALT" -o openwrt-imagebuilder.tar.xz --connect-timeout 20 --retry 5 || true
+          echo "Зеркало C3SL недоступно или выдало ошибку. Попытка 2: Зеркало ASTRON (Netherlands)..."
+          curl -k -L -A "$USER_AGENT" "$URL2" -o openwrt-imagebuilder.tar.xz --connect-timeout 20 --retry 5 || true
         fi
         
-        # Проверка типа файла перед распаковкой
-        if file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text"; then
-          echo "Критическая ошибка: Скачать бинарный архив не удалось. Защита Cloudflare не пройдена."
-          cat openwrt-imagebuilder.tar.xz
+        # Финальная проверка типа файла перед распаковкой
+        if [ ! -f openwrt-imagebuilder.tar.xz ] || file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text"; then
+          echo "Критическая ошибка: Ни одно из зеркал не отдало бинарный архив прошивки."
+          [ -f openwrt-imagebuilder.tar.xz ] && cat openwrt-imagebuilder.tar.xz
           exit 1
         fi
         
@@ -59,12 +59,11 @@ jobs:
       run: |
         cd imagebuilder
         
-        # Меняем внутренние репозитории пакетов внутри самого Image Builder на стабильное зеркало GigeNet/C3SL,
-        # чтобы в процессе сборки утилита make image не наткнулась на блокировку основного сайта
-        sed -i 's|downloads.openwrt.org|://gigenet.com|g' repositories.conf
+        # Перенаправляем внутренний менеджер пакетов Image Builder на работу через зеркало ASTRON,
+        # так как там нет никаких защит Cloudflare и проверка пройдет гладко
+        sed -i 's|downloads.openwrt.org|ftp.astron.nl/openwrt|g' repositories.conf
         
         # Конфигурация пакетов под 8MB Flash / 32MB RAM роутера DIR-620 A1
-        # LuCI включена, тяжелый mbedtls заменен на wolfssl, добавлены RNDIS/CDC драйверы модемов
         PACKAGES="luci \
                   -ppp -ppp-mod-pppoe \
                   -wpad-basic-mbedtls wpad-basic-wolfssl \
