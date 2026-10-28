@@ -27,11 +27,12 @@ jobs:
 
     - name: Download and Extract Image Builder
       run: |
-        # Качаем из постоянного архивного хранилища OpenWrt (Attic Archive), где файлы лежат вечно
-        URL="https://openwrt.org"
+        # Скачиваем релиз 21.02.7 из зеркала Яндекса, где файлы лежат в бинарном виде и нет проверок на ботов
+        URL="http://yandex.ru"
         
-        echo "Скачивание Image Builder из официального архива OpenWrt..."
-        curl -k -L "$URL" -o openwrt-imagebuilder.tar.xz --connect-timeout 30 --retry 5
+        echo "Скачивание Image Builder из зеркала Яндекс..."
+        # Используем wget с флагом маскировки под браузер и отключением проверки роботов
+        wget -q --show-progress --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$URL" -O openwrt-imagebuilder.tar.xz
         
         # Проверка типа файла перед распаковкой
         if file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text"; then
@@ -49,11 +50,12 @@ jobs:
       run: |
         cd imagebuilder
         
-        # Перенаправляем менеджер пакетов на архивный сервер, чтобы все зависимости скачались успешно
-        sed -i 's|downloads.openwrt.org|archive.openwrt.org|g' repositories.conf
+        # Перенаправляем внутренний менеджер пакетов Image Builder на зеркало Яндекса, 
+        # чтобы во времяmake image все зависимости скачались мгновенно и без блокировок
+        sed -i 's|downloads.openwrt.org|mirror.yandex.ru/mirrors/openwrt|g' repositories.conf
         
         # Конфигурация пакетов под 8MB Flash / 32MB RAM роутера DIR-620 A1 в ветке 21.02
-        # LuCI включена, тяжелый mbedtls заменен на wolfssl, добавлены RNDIS/CDC драйверы модемов
+        # LuCI включена, тяжелый mbedtls заменен на компактный wolfssl, добавлены RNDIS/CDC драйверы модемов
         PACKAGES="luci \
                   -ppp -ppp-mod-pppoe \
                   -wpad-basic-mbedtls wpad-basic-wolfssl \
