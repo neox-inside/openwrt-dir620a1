@@ -23,25 +23,26 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential libncurses5-dev libncursesw5-dev \
-          zlib1g-dev gawk git gettext libssl-dev xsltproc rsync wget unzip python3 xz-utils
+          zlib1g-dev gawk git gettext libssl-dev xsltproc rsync wget unzip python3 xz-utils file
 
     - name: Download and Extract Image Builder
       run: |
-        # Используем надежное немецкое университетское зеркало (RWTH Aachen), где нет защиты от ботов
-        URL="https://rwth-aachen.de"
+        # Используем стабильное крупное зеркало без систем фильтрации ботов (Яндекс или OVH)
+        URL="http://yandex.ru"
+        URL_ALT="https://ovh.net"
         
-        echo "Скачивание Image Builder с академического зеркала..."
+        echo "Скачивание Image Builder с Yandex Mirror..."
         curl -L "$URL" -o openwrt-imagebuilder.tar.xz --connect-timeout 20 --retry 5
         
-        # Проверяем, что скачался именно архив, а не текст/HTML
-        if file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text"; then
-          echo "Ошибка: Сервер вернул текст вместо архива! Пробуем резервное зеркало..."
-          URL_BACKUP="https://openwrt.org"
-          curl -L "$URL_BACKUP" -o openwrt-imagebuilder.tar.xz --connect-timeout 20 --retry 5
+        # Если Яндекс недоступен из дата-центра GitHub, используем французское зеркало OVH
+        if file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text|empty"; then
+          echo "Яндекс зеркало не отдало архив. Пробуем альтернативное зеркало OVH..."
+          curl -L "$URL_ALT" -o openwrt-imagebuilder.tar.xz --connect-timeout 20 --retry 5
         fi
         
+        # Финальная проверка типа файла перед распаковкой
         if file openwrt-imagebuilder.tar.xz | grep -q -E "HTML|text"; then
-          echo "Критическая ошибка: Скачать архив не удалось."
+          echo "Критическая ошибка: Скачать бинарный архив не удалось. Получен HTML:"
           cat openwrt-imagebuilder.tar.xz
           exit 1
         fi
@@ -55,11 +56,12 @@ jobs:
       run: |
         cd imagebuilder
         
-        # Подменяем источники пакетов внутри самого Image Builder на зеркало, 
-        # чтобы этап скачивания пакетов при сборке тоже не споткнулся о проверку на бота
-        sed -i 's|downloads.openwrt.org|ftp.halifax.rwth-aachen.de/openwrt|g' repositories.conf
+        # Меняем внутренние репозитории пакетов Image Builder на зеркало Яндекса, 
+        # чтобы при компиляции пакеты скачивались без блокировок Cloudflare
+        sed -i 's|downloads.openwrt.org|mirror.yandex.ru/mirrors/openwrt|g' repositories.conf
         
-        # Оптимальная конфигурация пакетов под 8MB Flash / 32MB RAM
+        # Конфигурация пакетов под 8MB Flash / 32MB RAM роутера DIR-620 A1
+        # LuCI включена, тяжелый mbedtls заменен на wolfssl, добавлены RNDIS/CDC драйверы
         PACKAGES="luci \
                   -ppp -ppp-mod-pppoe \
                   -wpad-basic-mbedtls wpad-basic-wolfssl \
