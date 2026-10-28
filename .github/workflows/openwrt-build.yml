@@ -13,12 +13,11 @@ jobs:
 
     - name: Free disk space safely
       run: |
-        # Удаляем тяжелые инструменты разработки, оставляя настройки APT нетронутыми
         sudo rm -rf /usr/share/dotnet
         sudo rm -rf /usr/local/lib/android
         sudo rm -rf /opt/ghc
         sudo rm -rf "/usr/local/share/boost"
-        echo "Диск успешно очищен под сборку."
+        echo "Диск успешно очищен."
 
     - name: Install dependencies
       run: |
@@ -28,17 +27,32 @@ jobs:
 
     - name: Download and Extract Image Builder
       run: |
-        wget https://openwrt.org
-        tar -xf openwrt-imagebuilder-22.03.7-ramips-rt305x.Linux-x86_64.tar.xz
-        mv openwrt-imagebuilder-22.03.7-ramips-rt305x.Linux-x86_64 imagebuilder
+        # Скачиваем строго по прямой ссылке на архив
+        URL="https://openwrt.org"
+        echo "Скачивание Image Builder с $URL..."
+        wget -q --show-progress "$URL" -O openwrt-imagebuilder.tar.xz
+        
+        # Проверяем, что файл скачался и имеет корректный размер
+        if [ ! -s openwrt-imagebuilder.tar.xz ]; then
+          echo "Ошибка: Файл не скачался или пуст!"
+          exit 1
+        fi
+        
+        echo "Распаковка архива..."
+        tar -xf openwrt-imagebuilder.tar.xz
+        
+        # Находим распакованную папку и переименовываем её для удобства
+        FOLDER_NAME=$(tar -tf openwrt-imagebuilder.tar.xz | head -1 | cut -f1 -d"/")
+        mv "$FOLDER_NAME" imagebuilder
+        rm openwrt-imagebuilder.tar.xz
 
     - name: Build Firmware Image
       run: |
         cd imagebuilder
         
         # Оптимальные пакеты для D-Link DIR-620 A1 (8MB Flash / 32MB RAM)
-        # Оставляем LuCI веб-интерфейс, убираем тяжелый wpad и ppp
-        # Добавляем современные USB драйверы (CDC-Ethernet, RNDIS) для Hilink-модемов
+        # Оставляем веб-интерфейс LuCI, убираем тяжелый mbedtls и ppp/pppoe
+        # Включаем wolfssl и поддержку современных USB-модемов (CDC-Ethernet, RNDIS)
         PACKAGES="luci \
                   -ppp -ppp-mod-pppoe \
                   -wpad-basic-mbedtls wpad-basic-wolfssl \
