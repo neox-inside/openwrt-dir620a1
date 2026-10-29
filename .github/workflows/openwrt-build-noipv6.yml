@@ -1,0 +1,73 @@
+name: Build OpenWrt for DIR-620 A1 (LuCI + USB Modem) without IPV6
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Free disk space safely
+      run: |
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /opt/ghc
+        sudo rm -rf "/usr/local/share/boost"
+        echo "Диск успешно очищен под сборку."
+
+    # Шаг для создания кастомных конфигов по умолчанию
+    - name: Pre-configure system (Disable IPv6)
+      run: |
+        mkdir -p files/etc/uci-defaults
+        cat << 'EOF' > files/etc/uci-defaults/99-disable-ipv6
+        uci delete network.wan6
+        uci set network.lan.ipv6=0
+        uci commit network
+        EOF
+        echo "Скрипт отключения IPv6 успешно подготовлен."
+
+    - name: Build Firmware via Official OpenWrt ImageBuilder Action
+      uses: izer-xyz/openwrt-imagebuilder-action@v7
+      with:
+        image: ramips-rt305x
+        profile: dlink_dir-620-a1
+        openwrt-version: 22.03.7
+        
+        # Подключаем папку с нашим скриптом отключения IPv6
+        files: 'files'
+        
+        # Ультра-оптимизированный набор пакетов для 8MB Flash / 32MB RAM
+        packages: >-
+          luci
+          wpad-mini
+          kmod-usb-core
+          kmod-usb2
+          kmod-usb-net
+          kmod-usb-net-cdc-ether
+          kmod-usb-net-rndis
+          kmod-usb-storage
+          kmod-scsi-core
+          -ppp
+          -ppp-mod-pppoe
+          -luci-proto-ppp
+          -wpad-basic-mbedtls
+          -ip6tables
+          -odhcp6c
+          -kmod-ipv6
+          -kmod-ip6tables
+          -odhcpd-ipv6only
+
+    - name: Prepare Artifacts
+      run: |
+        mkdir -p output
+        find bin/ -name "*sysupgrade.bin" -exec cp {} output/ \; 2>/dev/null || true
+
+    - name: Upload Firmware
+      uses: actions/upload-artifact@v4
+      with:
+        name: openwrt-dir620-a1-luci-usb
+        path: output/
