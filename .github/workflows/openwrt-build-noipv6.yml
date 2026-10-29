@@ -55,6 +55,7 @@ jobs:
           -ppp-mod-pppoe
           -luci-proto-ppp
           -wpad-basic-mbedtls
+          -wpad-basic-wolfssl
           -ip6tables
           -odhcp6c
           -kmod-ipv6
