@@ -34,6 +34,7 @@ jobs:
           luci
           -ppp
           -ppp-mod-pppoe
+          -luci-proto-ppp
           -wpad-basic-mbedtls
           wpad-basic-wolfssl
           kmod-usb-core
