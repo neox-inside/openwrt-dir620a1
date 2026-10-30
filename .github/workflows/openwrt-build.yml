@@ -36,8 +36,8 @@ jobs:
           -ppp-mod-pppoe
           -luci-proto-ppp
           -wpad-basic-mbedtls
+          -wpad-basic-wolfssl
           wpad-mini
-          #wpad-basic-wolfssl
           kmod-usb-core
           kmod-usb2
           kmod-usb-net
