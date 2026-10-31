@@ -39,7 +39,6 @@ jobs:
           -wpad-basic-wolfssl
           wpad-mini
           kmod-usb-core
-          kmod-usb2
           kmod-usb-dwc2
           kmod-usb-roles
           kmod-usb-net
