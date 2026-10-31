@@ -38,9 +38,10 @@ jobs:
           -wpad-basic-mbedtls
           -wpad-basic-wolfssl
           wpad-mini
-          kmod-usb-roles
           kmod-usb-core
           kmod-usb2
+          kmod-usb-dwc2
+          kmod-usb-roles
           kmod-usb-net
           kmod-usb-net-cdc-ether
           kmod-usb-net-rndis
